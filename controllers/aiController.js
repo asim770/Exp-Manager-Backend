@@ -2,6 +2,85 @@ import { buildFinancialContext } from '../utils/contextBuilder.js';
 import { callGeminiAPI } from '../services/geminiService.js';
 import axios from 'axios';
 
+// Rules-based fallback chat assistant when Gemini API key fails/is-quota-limited
+const generateFallbackChatResponse = (context, userMessage) => {
+  const currency = context.profile?.currency || '$';
+  const monthlyBudget = context.profile?.monthlyBudget || 2000;
+  const monthlyExpense = context.summary?.monthlyExpense || 0;
+  const monthlyIncome = context.summary?.monthlyIncome || 0;
+  const netBalance = context.summary?.currentBalance || 0;
+  const remainingBudget = Math.max(0, monthlyBudget - monthlyExpense);
+  const daysLeft = context.daysLeftInMonth || 15;
+  const dailyLimit = daysLeft > 0 ? (remainingBudget / daysLeft).toFixed(2) : '0.00';
+
+  const msg = userMessage.toLowerCase();
+
+  if (msg.includes('analyze') || msg.includes('expense') || msg.includes('spend')) {
+    let breakdown = '';
+    if (context.categoryBreakdown && context.categoryBreakdown.length > 0) {
+      breakdown = '\n\n**Category Breakdown:**\n' + context.categoryBreakdown.map(cat => `- **${cat.name}**: ${currency}${cat.value.toFixed(2)}`).join('\n');
+    }
+    return `Here is a breakdown of your current month's expenses:
+- **Total Spent**: ${currency}${monthlyExpense.toFixed(2)}
+- **Monthly Budget**: ${currency}${monthlyBudget.toFixed(2)}
+- **Remaining Budget**: ${currency}${remainingBudget.toFixed(2)}${breakdown}
+
+You have **${daysLeft} days** left in this calendar month. To stay within budget, I suggest a daily spending limit of **${currency}${dailyLimit}**.`;
+  }
+
+  if (msg.includes('save') || msg.includes('saving') || msg.includes('goal')) {
+    if (context.savingsGoals && context.savingsGoals.length > 0) {
+      const goalsList = context.savingsGoals.map(g => `- **${g.title}**: ${currency}${g.currentAmount} / ${currency}${g.targetAmount} (${g.percentage}% complete)`).join('\n');
+      return `Here are your active savings goals:
+${goalsList}
+
+**Tip**: Consider setting up an automatic transfer of 10-15% of your Freelance/Salary income right when it lands to keep these targets moving!`;
+    }
+    return `You don't have any active savings goals set up yet. You can create a new goal in the **Budgets & Savings** page. Having a specific target (like an Emergency Fund or New Laptop) makes saving much easier!`;
+  }
+
+  if (msg.includes('limit') || msg.includes('daily') || msg.includes('how much')) {
+    return `To successfully stay within your monthly budget of **${currency}${monthlyBudget}**:
+- **Spent so far**: ${currency}${monthlyExpense.toFixed(2)}
+- **Remaining budget**: ${currency}${remainingBudget.toFixed(2)}
+- **Days remaining**: ${daysLeft} days
+
+Your recommended daily spending limit is **${currency}${dailyLimit}** per day. Avoiding non-essential shopping for the next few days will help secure this budget!`;
+  }
+
+  if (msg.includes('balance') || msg.includes('income') || msg.includes('net')) {
+    return `Here is your current balance summary:
+- **Total Income**: ${currency}${monthlyIncome.toFixed(2)}
+- **Total Expenses**: ${currency}${monthlyExpense.toFixed(2)}
+- **Current Net Balance**: ${currency}${netBalance.toFixed(2)}
+
+Your cash flow is currently **${monthlyIncome >= monthlyExpense ? 'Positive' : 'Negative'}** for this month.`;
+  }
+
+  if (msg.includes('predict') || msg.includes('forecast')) {
+    const endOfMonthSpent = (monthlyExpense / (30 - daysLeft || 1)) * 30;
+    const overspend = endOfMonthSpent - monthlyBudget;
+    if (overspend > 0) {
+      return `Based on your current spending rate this month:
+- **Projected End-of-Month Spent**: ${currency}${endOfMonthSpent.toFixed(2)}
+- **Budget**: ${currency}${monthlyBudget.toFixed(2)}
+- **Alert**: You are on track to **overspend your budget by ${currency}${overspend.toFixed(2)}**. I recommend reducing variable expenses like Dining Out and Shopping immediately to normalize your cash flow.`;
+    }
+    return `Great news! Based on your current spending pace:
+- **Projected End-of-Month Spent**: ${currency}${endOfMonthSpent.toFixed(2)}
+- **Budget**: ${currency}${monthlyBudget.toFixed(2)}
+- **Forecast**: You are on track to finish the month with a **surplus of ${currency}${(monthlyBudget - endOfMonthSpent).toFixed(2)}**! Keep up the excellent budgeting!`;
+  }
+
+  // General fallback text
+  return `Hi! As your offline AI Finance Coach, I analyzed your records:
+- **Net Balance**: ${currency}${netBalance.toFixed(2)}
+- **Month's Expenses**: ${currency}${monthlyExpense.toFixed(2)} / ${currency}${monthlyBudget.toFixed(2)}
+- **Recommended Daily Limit**: ${currency}${dailyLimit} (for the remaining ${daysLeft} days)
+
+Ask me about your **expenses**, **savings goals**, **daily limits**, **balance prediction**, or request a **financial summary**!`;
+};
+
 // Chat with Gemini Assistant
 export const chatWithAI = async (req, res) => {
   try {
@@ -13,10 +92,15 @@ export const chatWithAI = async (req, res) => {
     // 1. Gather database context
     const context = await buildFinancialContext();
 
-    // 2. Call Gemini
-    const responseText = await callGeminiAPI(context, history, message);
-
-    res.json({ response: responseText });
+    try {
+      // 2. Call Gemini API
+      const responseText = await callGeminiAPI(context, history, message);
+      res.json({ response: responseText });
+    } catch (apiErr) {
+      console.warn('Gemini API call failed in chat, generating intelligent fallback response:', apiErr.message);
+      const fallbackResponse = generateFallbackChatResponse(context, message);
+      res.json({ response: fallbackResponse });
+    }
   } catch (error) {
     console.error('Error in AI Chat controller:', error);
     res.status(500).json({ message: error.message || 'An error occurred during AI processing.' });
