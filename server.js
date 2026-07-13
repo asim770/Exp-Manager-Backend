@@ -11,6 +11,7 @@ import lendRoutes from './routes/lendRoutes.js';
 import savingsRoutes from './routes/savingsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
+import aiRoutes from './routes/ai.js';
 
 // Import Models for Seeding
 import Profile from './models/Profile.js';
@@ -64,6 +65,7 @@ app.use('/api/lend', lendRoutes);
 app.use('/api/savings', savingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Health check / welcome endpoint
 app.get('/', (req, res) => {
