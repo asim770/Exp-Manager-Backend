@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 
 // Import Routes
+import authRoutes from './routes/authRoutes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import borrowRoutes from './routes/borrowRoutes.js';
@@ -13,14 +14,14 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import aiRoutes from './routes/ai.js';
 
-// Import Models for Seeding
-import Profile from './models/Profile.js';
+// Import Middleware
+import { authenticateUser } from './middleware/auth.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-const MONGODB_URI = process.env.MONGODB_URI ;
+const MONGODB_URI = process.env.MONGODB_URI;
 
 // Middleware
 app.use(cors({
@@ -30,46 +31,31 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection & Single Profile Seeding
+// Database connection
 mongoose.connect(MONGODB_URI)
-  .then(async () => {
+  .then(() => {
     console.log('Connected successfully to MongoDB.');
-    
-    // Seed default profile if not exists
-    try {
-      const profileCount = await Profile.countDocuments();
-      if (profileCount === 0) {
-        await Profile.create({
-          name: 'Asim Maji',
-          currency: '$',
-          monthlyBudget: 2000,
-          budgetAlertPercentage: 80,
-          savingsGoal: 5000,
-          theme: 'dark'
-        });
-        console.log('Default user profile successfully seeded.');
-      }
-    } catch (seedErr) {
-      console.error('Failed to seed default profile:', seedErr);
-    }
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message);
   });
 
-// API Routes
-app.use('/api/profile', profileRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/borrow', borrowRoutes);
-app.use('/api/lend', lendRoutes);
-app.use('/api/savings', savingsRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/ai', aiRoutes);
+// Public Auth Routes
+app.use('/api/auth', authRoutes);
+
+// Protected API Routes (scoped to authenticated user)
+app.use('/api/profile', authenticateUser, profileRoutes);
+app.use('/api/transactions', authenticateUser, transactionRoutes);
+app.use('/api/borrow', authenticateUser, borrowRoutes);
+app.use('/api/lend', authenticateUser, lendRoutes);
+app.use('/api/savings', authenticateUser, savingsRoutes);
+app.use('/api/notifications', authenticateUser, notificationRoutes);
+app.use('/api/dashboard', authenticateUser, dashboardRoutes);
+app.use('/api/ai', authenticateUser, aiRoutes);
 
 // Health check / welcome endpoint
 app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to Personal Finance & Expense Manager API' });
+  res.json({ message: 'Personal Finance & Expense Manager API with Google Auth is running' });
 });
 
 // Centralized error handler middleware

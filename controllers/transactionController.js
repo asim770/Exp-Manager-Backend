@@ -2,12 +2,12 @@ import Transaction from '../models/Transaction.js';
 import Profile from '../models/Profile.js';
 import Notification from '../models/Notification.js';
 
-// Get all transactions with search, sorting and filtering
+// Get all transactions with search, sorting and filtering for the authenticated user
 export const getTransactions = async (req, res) => {
   try {
     const { type, category, startDate, endDate, search, sortBy } = req.query;
     
-    let query = {};
+    let query = { user: req.user._id };
     
     if (type) {
       query.type = type;
@@ -28,9 +28,14 @@ export const getTransactions = async (req, res) => {
     }
     
     if (search) {
-      query.$or = [
-        { category: { $regex: search, $options: 'i' } },
-        { notes: { $regex: search, $options: 'i' } },
+      query.$and = [
+        { user: req.user._id },
+        {
+          $or: [
+            { category: { $regex: search, $options: 'i' } },
+            { notes: { $regex: search, $options: 'i' } },
+          ],
+        },
       ];
     }
     
@@ -49,10 +54,10 @@ export const getTransactions = async (req, res) => {
   }
 };
 
-// Check budget limit helper
-const checkBudgetLimit = async (addedAmount) => {
+// Check budget limit helper for the specific user
+const checkBudgetLimit = async (userId, addedAmount) => {
   try {
-    const profile = await Profile.findOne();
+    const profile = await Profile.findOne({ user: userId });
     if (!profile || !profile.monthlyBudget) return;
 
     const startOfMonth = new Date();
@@ -62,52 +67,56 @@ const checkBudgetLimit = async (addedAmount) => {
     const endOfMonth = new Date(startOfMonth);
     endOfMonth.setMonth(endOfMonth.getMonth() + 1);
 
-    // Sum current month expenses
+    // Sum current month expenses for this user
     const expenses = await Transaction.aggregate([
       {
         $match: {
+          user: userId,
           type: 'expense',
-          date: { $gte: startOfMonth, $lt: endOfMonth }
-        }
+          date: { $gte: startOfMonth, $lt: endOfMonth },
+        },
       },
       {
         $group: {
           _id: null,
-          total: { $sum: '$amount' }
-        }
-      }
+          total: { $sum: '$amount' },
+        },
+      },
     ]);
 
     const currentTotal = (expenses[0]?.total || 0) + addedAmount;
     const budget = profile.monthlyBudget;
     const warningLimit = budget * (profile.budgetAlertPercentage / 100);
+    const curr = profile.currency || '$';
 
     // Check if we need to issue warnings
     if (currentTotal >= budget) {
-      // Check if we already have an overspent notification for this month
       const existing = await Notification.findOne({
+        user: userId,
         type: 'budget',
         title: 'Monthly Budget Exceeded',
-        date: { $gte: startOfMonth, $lt: endOfMonth }
+        date: { $gte: startOfMonth, $lt: endOfMonth },
       });
       if (!existing) {
         await Notification.create({
+          user: userId,
           title: 'Monthly Budget Exceeded',
-          message: `Your total spending ($${currentTotal.toFixed(2)}) has exceeded your set monthly budget of $${budget.toFixed(2)}!`,
+          message: `Your total spending (${curr}${currentTotal.toFixed(2)}) has exceeded your set monthly budget of ${curr}${budget.toFixed(2)}!`,
           type: 'budget',
         });
       }
     } else if (currentTotal >= warningLimit) {
-      // Warning threshold crossed
       const existing = await Notification.findOne({
+        user: userId,
         type: 'budget',
         title: 'Budget Warning Threshold Reached',
-        date: { $gte: startOfMonth, $lt: endOfMonth }
+        date: { $gte: startOfMonth, $lt: endOfMonth },
       });
       if (!existing) {
         await Notification.create({
+          user: userId,
           title: 'Budget Warning Threshold Reached',
-          message: `You have spent $${currentTotal.toFixed(2)} (${profile.budgetAlertPercentage}% of your $${budget.toFixed(2)} budget).`,
+          message: `You have spent ${curr}${currentTotal.toFixed(2)} (${profile.budgetAlertPercentage}% of your ${curr}${budget.toFixed(2)} budget).`,
           type: 'budget',
         });
       }
@@ -127,6 +136,7 @@ export const createTransaction = async (req, res) => {
     }
     
     const transaction = await Transaction.create({
+      user: req.user._id,
       type,
       category,
       amount: Number(amount),
@@ -139,7 +149,7 @@ export const createTransaction = async (req, res) => {
     
     // Check budget warnings for expenses
     if (type === 'expense') {
-      await checkBudgetLimit(Number(amount));
+      await checkBudgetLimit(req.user._id, Number(amount));
     }
     
     res.status(201).json(transaction);
@@ -154,7 +164,7 @@ export const updateTransaction = async (req, res) => {
     const { id } = req.params;
     const { type, category, amount, date, notes, receiptUrl, isRecurring, recurringInterval } = req.body;
     
-    const transaction = await Transaction.findById(id);
+    const transaction = await Transaction.findOne({ _id: id, user: req.user._id });
     if (!transaction) {
       return res.status(404).json({ message: 'Transaction not found' });
     }
@@ -177,7 +187,7 @@ export const updateTransaction = async (req, res) => {
     if (transaction.type === 'expense') {
       const addedAmount = transaction.amount - (oldType === 'expense' ? oldAmount : 0);
       if (addedAmount > 0) {
-        await checkBudgetLimit(addedAmount);
+        await checkBudgetLimit(req.user._id, addedAmount);
       }
     }
     
@@ -191,7 +201,7 @@ export const updateTransaction = async (req, res) => {
 export const deleteTransaction = async (req, res) => {
   try {
     const { id } = req.params;
-    const transaction = await Transaction.findByIdAndDelete(id);
+    const transaction = await Transaction.findOneAndDelete({ _id: id, user: req.user._id });
     if (!transaction) {
       return res.status(404).json({ message: 'Transaction not found' });
     }

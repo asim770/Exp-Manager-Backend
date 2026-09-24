@@ -4,10 +4,12 @@ import Borrow from '../models/Borrow.js';
 import Lend from '../models/Lend.js';
 import SavingsGoal from '../models/SavingsGoal.js';
 
-export const buildFinancialContext = async () => {
+export const buildFinancialContext = async (userId) => {
   try {
+    const userQuery = userId ? { user: userId } : {};
+
     // 1. Fetch Profile
-    const profile = await Profile.findOne() || { name: 'Asim Maji', currency: '₹', monthlyBudget: 2000, budgetAlertPercentage: 80 };
+    const profile = await Profile.findOne(userQuery) || { name: 'User', currency: '$', monthlyBudget: 2000, budgetAlertPercentage: 80 };
 
     // 2. Setup dates
     const now = new Date();
@@ -19,7 +21,7 @@ export const buildFinancialContext = async () => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     
     // 3. Transactions Query
-    const transactions = await Transaction.find().sort({ date: -1 });
+    const transactions = await Transaction.find(userQuery).sort({ date: -1 });
     
     let totalIncome = 0;
     let totalExpense = 0;
@@ -68,7 +70,7 @@ export const buildFinancialContext = async () => {
     const topLargestExpenses = largestExpenses.slice(0, 5);
 
     // 4. Borrow records
-    const borrows = await Borrow.find();
+    const borrows = await Borrow.find(userQuery);
     let totalBorrowed = 0;
     let outstandingBorrowed = 0;
     const upcomingDebts = [];
@@ -88,7 +90,7 @@ export const buildFinancialContext = async () => {
     upcomingDebts.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 
     // 5. Lend records
-    const lends = await Lend.find();
+    const lends = await Lend.find(userQuery);
     let totalLent = 0;
     let outstandingReceivables = 0;
     const upcomingCollections = [];
@@ -108,7 +110,7 @@ export const buildFinancialContext = async () => {
     upcomingCollections.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 
     // 6. Savings Goals
-    const savingsGoals = await SavingsGoal.find();
+    const savingsGoals = await SavingsGoal.find(userQuery);
     let totalSavings = 0;
     const goalsSummary = [];
     

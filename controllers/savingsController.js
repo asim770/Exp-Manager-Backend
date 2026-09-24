@@ -1,10 +1,10 @@
 import SavingsGoal from '../models/SavingsGoal.js';
 import Notification from '../models/Notification.js';
 
-// Get savings goals
+// Get savings goals for current user
 export const getSavingsGoals = async (req, res) => {
   try {
-    const goals = await SavingsGoal.find().sort({ dueDate: 1 });
+    const goals = await SavingsGoal.find({ user: req.user._id }).sort({ dueDate: 1 });
     res.json(goals);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving savings goals', error: error.message });
@@ -21,6 +21,7 @@ export const createSavingsGoal = async (req, res) => {
     }
     
     const goal = await SavingsGoal.create({
+      user: req.user._id,
       title,
       targetAmount: Number(targetAmount),
       currentAmount: currentAmount ? Number(currentAmount) : 0,
@@ -32,6 +33,7 @@ export const createSavingsGoal = async (req, res) => {
     // Check if goal met instantly
     if (goal.currentAmount >= goal.targetAmount) {
       await Notification.create({
+        user: req.user._id,
         title: 'Savings Goal Achieved!',
         message: `Congratulations! You have reached your savings goal of $${Number(targetAmount).toFixed(2)} for "${title}".`,
         type: 'savings',
@@ -50,7 +52,7 @@ export const updateSavingsGoal = async (req, res) => {
     const { id } = req.params;
     const { title, targetAmount, currentAmount, dueDate, notes } = req.body;
     
-    const goal = await SavingsGoal.findById(id);
+    const goal = await SavingsGoal.findOne({ _id: id, user: req.user._id });
     if (!goal) {
       return res.status(404).json({ message: 'Savings goal not found' });
     }
@@ -78,7 +80,7 @@ export const addContribution = async (req, res) => {
       return res.status(400).json({ message: 'Valid contribution amount is required' });
     }
     
-    const goal = await SavingsGoal.findById(id);
+    const goal = await SavingsGoal.findOne({ _id: id, user: req.user._id });
     if (!goal) {
       return res.status(404).json({ message: 'Savings goal not found' });
     }
@@ -98,6 +100,7 @@ export const addContribution = async (req, res) => {
     // Check achievements
     if (goal.currentAmount >= goal.targetAmount && !wasAchieved) {
       await Notification.create({
+        user: req.user._id,
         title: 'Savings Goal Achieved!',
         message: `Congratulations! You have reached your savings goal of $${goal.targetAmount.toFixed(2)} for "${goal.title}".`,
         type: 'savings',
@@ -114,7 +117,7 @@ export const addContribution = async (req, res) => {
 export const deleteSavingsGoal = async (req, res) => {
   try {
     const { id } = req.params;
-    const goal = await SavingsGoal.findByIdAndDelete(id);
+    const goal = await SavingsGoal.findOneAndDelete({ _id: id, user: req.user._id });
     if (!goal) {
       return res.status(404).json({ message: 'Savings goal not found' });
     }

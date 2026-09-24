@@ -2,10 +2,11 @@ import Profile from '../models/Profile.js';
 
 export const getProfile = async (req, res) => {
   try {
-    let profile = await Profile.findOne();
+    let profile = await Profile.findOne({ user: req.user._id });
     if (!profile) {
       profile = await Profile.create({
-        name: 'Asim Maji',
+        user: req.user._id,
+        name: req.user.name || 'User',
         currency: 'USD',
         monthlyBudget: 2000,
         budgetAlertPercentage: 80,
@@ -21,9 +22,9 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    let profile = await Profile.findOne();
+    let profile = await Profile.findOne({ user: req.user._id });
     if (!profile) {
-      profile = new Profile();
+      profile = new Profile({ user: req.user._id });
     }
     
     const { name, currency, monthlyBudget, budgetAlertPercentage, savingsGoal, theme } = req.body;

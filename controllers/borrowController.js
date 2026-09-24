@@ -1,11 +1,11 @@
 import Borrow from '../models/Borrow.js';
 import Notification from '../models/Notification.js';
 
-// Get borrow records
+// Get borrow records for current user
 export const getBorrows = async (req, res) => {
   try {
     const { status, search } = req.query;
-    let query = {};
+    let query = { user: req.user._id };
     
     if (status) {
       query.status = status;
@@ -22,7 +22,7 @@ export const getBorrows = async (req, res) => {
   }
 };
 
-// Create a borrow record
+// Create a borrow record for current user
 export const createBorrow = async (req, res) => {
   try {
     const { personName, contactNumber, amount, borrowDate, dueDate, interest, notes } = req.body;
@@ -32,6 +32,7 @@ export const createBorrow = async (req, res) => {
     }
     
     const record = await Borrow.create({
+      user: req.user._id,
       personName,
       contactNumber,
       amount: Number(amount),
@@ -47,6 +48,7 @@ export const createBorrow = async (req, res) => {
     const diffDays = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
     if (diffDays <= 3 && diffDays >= 0) {
       await Notification.create({
+        user: req.user._id,
         title: 'Borrow Payment Due Soon',
         message: `You owe $${Number(amount).toFixed(2)} to ${personName} due on ${new Date(dueDate).toLocaleDateString()}.`,
         type: 'payment',
@@ -65,7 +67,7 @@ export const updateBorrow = async (req, res) => {
     const { id } = req.params;
     const { personName, contactNumber, amount, remainingAmount, borrowDate, dueDate, interest, notes, status } = req.body;
     
-    const record = await Borrow.findById(id);
+    const record = await Borrow.findOne({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }
@@ -97,7 +99,7 @@ export const recordBorrowPayment = async (req, res) => {
       return res.status(400).json({ message: 'Valid payment amount is required' });
     }
     
-    const record = await Borrow.findById(id);
+    const record = await Borrow.findOne({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }
@@ -130,7 +132,7 @@ export const recordBorrowPayment = async (req, res) => {
 export const deleteBorrow = async (req, res) => {
   try {
     const { id } = req.params;
-    const record = await Borrow.findByIdAndDelete(id);
+    const record = await Borrow.findOneAndDelete({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }

@@ -184,8 +184,8 @@ export const chatWithAI = async (req, res) => {
       return res.status(400).json({ message: 'User message is required.' });
     }
 
-    // 1. Gather database context
-    const context = await buildFinancialContext();
+    // 1. Gather database context for the authenticated user
+    const context = await buildFinancialContext(req.user?._id);
 
     try {
       // 2. Call Gemini API
@@ -205,8 +205,8 @@ export const chatWithAI = async (req, res) => {
 // Get Dashboard Insights (輕量級 JSON)
 export const getAIInsights = async (req, res) => {
   try {
-    // 1. Gather database context
-    const context = await buildFinancialContext();
+    // 1. Gather database context for the authenticated user
+    const context = await buildFinancialContext(req.user?._id);
     
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {

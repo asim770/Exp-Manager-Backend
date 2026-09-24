@@ -6,10 +6,11 @@ import Profile from '../models/Profile.js';
 
 export const getDashboardStats = async (req, res) => {
   try {
-    const profile = await Profile.findOne() || { monthlyBudget: 2000, savingsGoal: 5000 };
+    const userId = req.user._id;
+    const profile = await Profile.findOne({ user: userId }) || { monthlyBudget: 2000, savingsGoal: 5000 };
     
     // 1. Total Income & Expenses (All-time and Current Month)
-    const allTransactions = await Transaction.find().sort({ date: -1 });
+    const allTransactions = await Transaction.find({ user: userId }).sort({ date: -1 });
     
     let totalIncome = 0;
     let totalExpense = 0;
@@ -36,14 +37,14 @@ export const getDashboardStats = async (req, res) => {
     });
 
     // 2. Savings goals progress
-    const savingsGoals = await SavingsGoal.find();
+    const savingsGoals = await SavingsGoal.find({ user: userId });
     let totalSavings = 0;
     savingsGoals.forEach(g => {
       totalSavings += g.currentAmount;
     });
 
     // 3. Borrow records summary
-    const borrows = await Borrow.find({ status: 'pending' });
+    const borrows = await Borrow.find({ user: userId, status: 'pending' });
     let totalBorrowed = 0;
     let moneyToPay = 0;
     borrows.forEach(b => {
@@ -52,7 +53,7 @@ export const getDashboardStats = async (req, res) => {
     });
 
     // 4. Lend records summary
-    const lends = await Lend.find({ status: 'pending' });
+    const lends = await Lend.find({ user: userId, status: 'pending' });
     let totalLent = 0;
     let moneyToReceive = 0;
     lends.forEach(l => {
@@ -61,19 +62,18 @@ export const getDashboardStats = async (req, res) => {
     });
 
     // 5. Current Net Balance
-    // Net Balance = (Incomes - Expenses) + Borrowed remaining - Lent remaining
     const currentBalance = totalIncome - totalExpense;
 
     // 6. Recent lists
     const recentTransactions = allTransactions.slice(0, 6);
     
-    const recentBorrows = await Borrow.find().sort({ createdAt: -1 }).limit(5);
-    const recentLends = await Lend.find().sort({ createdAt: -1 }).limit(5);
+    const recentBorrows = await Borrow.find({ user: userId }).sort({ createdAt: -1 }).limit(5);
+    const recentLends = await Lend.find({ user: userId }).sort({ createdAt: -1 }).limit(5);
     
     // 7. Upcoming payments (Borrow/Lend records with due dates in future, sorted by due dates)
     const today = new Date();
-    const upcomingBorrow = await Borrow.find({ status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
-    const upcomingLend = await Lend.find({ status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
+    const upcomingBorrow = await Borrow.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
+    const upcomingLend = await Lend.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
     
     const upcomingPayments = [
       ...upcomingBorrow.map(b => ({
@@ -106,6 +106,7 @@ export const getDashboardStats = async (req, res) => {
       const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
       
       const monthTransactions = await Transaction.find({
+        user: userId,
         date: { $gte: start, $lte: end }
       });
       

@@ -1,11 +1,11 @@
 import Lend from '../models/Lend.js';
 import Notification from '../models/Notification.js';
 
-// Get lending records
+// Get lending records for current user
 export const getLends = async (req, res) => {
   try {
     const { status, search } = req.query;
-    let query = {};
+    let query = { user: req.user._id };
     
     if (status) {
       query.status = status;
@@ -22,7 +22,7 @@ export const getLends = async (req, res) => {
   }
 };
 
-// Create a lending record
+// Create a lending record for current user
 export const createLend = async (req, res) => {
   try {
     const { personName, contactNumber, amount, lendingDate, dueDate, interest, notes } = req.body;
@@ -32,6 +32,7 @@ export const createLend = async (req, res) => {
     }
     
     const record = await Lend.create({
+      user: req.user._id,
       personName,
       contactNumber,
       amount: Number(amount),
@@ -47,6 +48,7 @@ export const createLend = async (req, res) => {
     const diffDays = Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24));
     if (diffDays <= 3 && diffDays >= 0) {
       await Notification.create({
+        user: req.user._id,
         title: 'Lent Collection Due Soon',
         message: `You are scheduled to collect $${Number(amount).toFixed(2)} from ${personName} on ${new Date(dueDate).toLocaleDateString()}.`,
         type: 'payment',
@@ -65,7 +67,7 @@ export const updateLend = async (req, res) => {
     const { id } = req.params;
     const { personName, contactNumber, amount, remainingAmount, lendingDate, dueDate, interest, notes, status } = req.body;
     
-    const record = await Lend.findById(id);
+    const record = await Lend.findOne({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }
@@ -97,7 +99,7 @@ export const recordLendPayment = async (req, res) => {
       return res.status(400).json({ message: 'Valid payment amount is required' });
     }
     
-    const record = await Lend.findById(id);
+    const record = await Lend.findOne({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }
@@ -130,7 +132,7 @@ export const recordLendPayment = async (req, res) => {
 export const deleteLend = async (req, res) => {
   try {
     const { id } = req.params;
-    const record = await Lend.findByIdAndDelete(id);
+    const record = await Lend.findOneAndDelete({ _id: id, user: req.user._id });
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });
     }
