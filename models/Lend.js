@@ -67,4 +67,7 @@ const LendSchema = new mongoose.Schema({
   },
 });
 
+LendSchema.index({ user: 1, status: 1, dueDate: 1 });
+LendSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model('Lend', LendSchema);

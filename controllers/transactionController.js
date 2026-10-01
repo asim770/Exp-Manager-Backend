@@ -47,7 +47,7 @@ export const getTransactions = async (req, res) => {
       else if (sortBy === 'amount_desc') sortOptions = { amount: -1 };
     }
     
-    const transactions = await Transaction.find(query).sort(sortOptions);
+    const transactions = await Transaction.find(query).sort(sortOptions).lean();
     res.json(transactions);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching transactions', error: error.message });

@@ -67,4 +67,7 @@ const BorrowSchema = new mongoose.Schema({
   },
 });
 
+BorrowSchema.index({ user: 1, status: 1, dueDate: 1 });
+BorrowSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model('Borrow', BorrowSchema);

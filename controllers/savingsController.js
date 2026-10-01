@@ -4,7 +4,7 @@ import Notification from '../models/Notification.js';
 // Get savings goals for current user
 export const getSavingsGoals = async (req, res) => {
   try {
-    const goals = await SavingsGoal.find({ user: req.user._id }).sort({ dueDate: 1 });
+    const goals = await SavingsGoal.find({ user: req.user._id }).sort({ dueDate: 1 }).lean();
     res.json(goals);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving savings goals', error: error.message });

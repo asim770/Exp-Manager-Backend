@@ -15,7 +15,7 @@ export const getLends = async (req, res) => {
       query.personName = { $regex: search, $options: 'i' };
     }
     
-    const records = await Lend.find(query).sort({ dueDate: 1 });
+    const records = await Lend.find(query).sort({ dueDate: 1 }).lean();
     res.json(records);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving lending records', error: error.message });

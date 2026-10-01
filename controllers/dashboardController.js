@@ -7,11 +7,34 @@ import Profile from '../models/Profile.js';
 export const getDashboardStats = async (req, res) => {
   try {
     const userId = req.user._id;
-    const profile = await Profile.findOne({ user: userId }) || { monthlyBudget: 2000, savingsGoal: 5000 };
+    const today = new Date();
+    
+    // Execute all independent database queries in parallel with .lean() for maximum performance
+    const [
+      profileDoc,
+      allTransactions,
+      savingsGoals,
+      borrows,
+      lends,
+      recentBorrows,
+      recentLends,
+      upcomingBorrow,
+      upcomingLend,
+    ] = await Promise.all([
+      Profile.findOne({ user: userId }).lean(),
+      Transaction.find({ user: userId }).sort({ date: -1 }).lean(),
+      SavingsGoal.find({ user: userId }).lean(),
+      Borrow.find({ user: userId, status: 'pending' }).lean(),
+      Lend.find({ user: userId, status: 'pending' }).lean(),
+      Borrow.find({ user: userId }).sort({ createdAt: -1 }).limit(5).lean(),
+      Lend.find({ user: userId }).sort({ createdAt: -1 }).limit(5).lean(),
+      Borrow.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3).lean(),
+      Lend.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3).lean(),
+    ]);
+
+    const profile = profileDoc || { monthlyBudget: 2000, savingsGoal: 5000 };
     
     // 1. Total Income & Expenses (All-time and Current Month)
-    const allTransactions = await Transaction.find({ user: userId }).sort({ date: -1 });
-    
     let totalIncome = 0;
     let totalExpense = 0;
     
@@ -23,28 +46,27 @@ export const getDashboardStats = async (req, res) => {
     let monthlyExpense = 0;
     
     allTransactions.forEach(t => {
+      const txDate = new Date(t.date);
       if (t.type === 'income') {
         totalIncome += t.amount;
-        if (t.date >= startOfMonth) {
+        if (txDate >= startOfMonth) {
           monthlyIncome += t.amount;
         }
       } else {
         totalExpense += t.amount;
-        if (t.date >= startOfMonth) {
+        if (txDate >= startOfMonth) {
           monthlyExpense += t.amount;
         }
       }
     });
 
     // 2. Savings goals progress
-    const savingsGoals = await SavingsGoal.find({ user: userId });
     let totalSavings = 0;
     savingsGoals.forEach(g => {
       totalSavings += g.currentAmount;
     });
 
     // 3. Borrow records summary
-    const borrows = await Borrow.find({ user: userId, status: 'pending' });
     let totalBorrowed = 0;
     let moneyToPay = 0;
     borrows.forEach(b => {
@@ -53,7 +75,6 @@ export const getDashboardStats = async (req, res) => {
     });
 
     // 4. Lend records summary
-    const lends = await Lend.find({ user: userId, status: 'pending' });
     let totalLent = 0;
     let moneyToReceive = 0;
     lends.forEach(l => {
@@ -67,14 +88,7 @@ export const getDashboardStats = async (req, res) => {
     // 6. Recent lists
     const recentTransactions = allTransactions.slice(0, 6);
     
-    const recentBorrows = await Borrow.find({ user: userId }).sort({ createdAt: -1 }).limit(5);
-    const recentLends = await Lend.find({ user: userId }).sort({ createdAt: -1 }).limit(5);
-    
     // 7. Upcoming payments (Borrow/Lend records with due dates in future, sorted by due dates)
-    const today = new Date();
-    const upcomingBorrow = await Borrow.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
-    const upcomingLend = await Lend.find({ user: userId, status: 'pending', dueDate: { $gte: today } }).sort({ dueDate: 1 }).limit(3);
-    
     const upcomingPayments = [
       ...upcomingBorrow.map(b => ({
         id: b._id,
@@ -94,7 +108,8 @@ export const getDashboardStats = async (req, res) => {
       }))
     ].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).slice(0, 5);
 
-    // 8. Monthly Cash Flow (Last 6 Months data for chart)
+    // 8. Monthly Cash Flow (Calculated efficiently from in-memory allTransactions without extra DB queries)
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const cashFlowData = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
@@ -105,19 +120,17 @@ export const getDashboardStats = async (req, res) => {
       const start = new Date(year, month, 1);
       const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
       
-      const monthTransactions = await Transaction.find({
-        user: userId,
-        date: { $gte: start, $lte: end }
-      });
-      
       let inc = 0;
       let exp = 0;
-      monthTransactions.forEach(t => {
-        if (t.type === 'income') inc += t.amount;
-        else exp += t.amount;
-      });
+      for (let j = 0; j < allTransactions.length; j++) {
+        const t = allTransactions[j];
+        const tDate = new Date(t.date);
+        if (tDate >= start && tDate <= end) {
+          if (t.type === 'income') inc += t.amount;
+          else exp += t.amount;
+        }
+      }
       
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       cashFlowData.push({
         month: monthNames[month],
         income: inc,
@@ -128,7 +141,7 @@ export const getDashboardStats = async (req, res) => {
 
     // 9. Category Breakdown for current month expenses
     const categoryTotals = {};
-    const currentMonthExpenses = allTransactions.filter(t => t.type === 'expense' && t.date >= startOfMonth);
+    const currentMonthExpenses = allTransactions.filter(t => t.type === 'expense' && new Date(t.date) >= startOfMonth);
     
     currentMonthExpenses.forEach(t => {
       categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;

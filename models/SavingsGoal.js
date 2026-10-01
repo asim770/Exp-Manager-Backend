@@ -49,4 +49,6 @@ const SavingsGoalSchema = new mongoose.Schema({
   },
 });
 
+SavingsGoalSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model('SavingsGoal', SavingsGoalSchema);

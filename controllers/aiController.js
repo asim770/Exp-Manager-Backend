@@ -202,15 +202,34 @@ export const chatWithAI = async (req, res) => {
   }
 };
 
+// In-memory cache for AI insights to prevent redundant Gemini API roundtrips
+const insightsCache = new Map();
+const INSIGHTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Get Dashboard Insights (輕量級 JSON)
 export const getAIInsights = async (req, res) => {
   try {
+    const userId = req.user?._id?.toString();
+    const shouldRefresh = req.query.refresh === 'true';
+
+    // Check cache first (unless explicit refresh requested)
+    if (!shouldRefresh && userId && insightsCache.has(userId)) {
+      const cached = insightsCache.get(userId);
+      if (Date.now() - cached.timestamp < INSIGHTS_CACHE_TTL) {
+        return res.json(cached.data);
+      } else {
+        insightsCache.delete(userId);
+      }
+    }
+
     // 1. Gather database context for the authenticated user
     const context = await buildFinancialContext(req.user?._id);
     
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(200).json(getFallbackInsights(context));
+      const fallback = getFallbackInsights(context);
+      if (userId) insightsCache.set(userId, { timestamp: Date.now(), data: fallback });
+      return res.status(200).json(fallback);
     }
 
     // 2. Query Gemini for structured JSON insights
@@ -245,13 +264,16 @@ You MUST output ONLY a valid JSON block matching this exact structure, with no m
       const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (responseText) {
         const insights = JSON.parse(responseText.trim());
+        if (userId) insightsCache.set(userId, { timestamp: Date.now(), data: insights });
         return res.json(insights);
       }
       
       throw new Error('Empty response from Gemini');
     } catch (apiErr) {
       console.error('Failed to get insights from Gemini, using fallback:', apiErr.message);
-      return res.json(getFallbackInsights(context));
+      const fallback = getFallbackInsights(context);
+      if (userId) insightsCache.set(userId, { timestamp: Date.now(), data: fallback });
+      return res.json(fallback);
     }
   } catch (error) {
     console.error('Error in AI Insights controller:', error);

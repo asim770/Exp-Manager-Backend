@@ -3,7 +3,7 @@ import Notification from '../models/Notification.js';
 // Get notifications for current user
 export const getNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ user: req.user._id }).sort({ date: -1 });
+    const notifications = await Notification.find({ user: req.user._id }).sort({ date: -1 }).limit(50).lean();
     res.json(notifications);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching notifications', error: error.message });

@@ -50,4 +50,9 @@ const TransactionSchema = new mongoose.Schema({
   },
 });
 
+// Compound indexes for fast query and sorting
+TransactionSchema.index({ user: 1, date: -1 });
+TransactionSchema.index({ user: 1, type: 1, date: -1 });
+TransactionSchema.index({ user: 1, category: 1 });
+
 export default mongoose.model('Transaction', TransactionSchema);

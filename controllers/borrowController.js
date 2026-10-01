@@ -15,7 +15,7 @@ export const getBorrows = async (req, res) => {
       query.personName = { $regex: search, $options: 'i' };
     }
     
-    const records = await Borrow.find(query).sort({ dueDate: 1 });
+    const records = await Borrow.find(query).sort({ dueDate: 1 }).lean();
     res.json(records);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving borrow records', error: error.message });
