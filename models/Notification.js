@@ -17,8 +17,12 @@ const NotificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['budget', 'payment', 'savings', 'general'],
+    enum: ['budget', 'payment', 'savings', 'general', 'group_invite', 'group'],
     default: 'general',
+  },
+  data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
   },
   read: {
     type: Boolean,

@@ -13,6 +13,7 @@ import savingsRoutes from './routes/savingsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import aiRoutes from './routes/ai.js';
+import splitGroupRoutes from './routes/splitGroupRoutes.js';
 
 // Import Middleware
 import { authenticateUser } from './middleware/auth.js';
@@ -52,6 +53,7 @@ app.use('/api/savings', authenticateUser, savingsRoutes);
 app.use('/api/notifications', authenticateUser, notificationRoutes);
 app.use('/api/dashboard', authenticateUser, dashboardRoutes);
 app.use('/api/ai', authenticateUser, aiRoutes);
+app.use('/api/split-groups', authenticateUser, splitGroupRoutes);
 
 // Health check / welcome endpoint
 app.get('/', (req, res) => {
