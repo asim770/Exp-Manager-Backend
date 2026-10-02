@@ -1,12 +1,13 @@
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 /**
  * Creates and returns a nodemailer transporter based on environment variables.
- * Falls back safely to console logging if credentials are missing.
+ * Configured with strict timeouts so cloud platforms (e.g. Render) don't hang if SMTP ports are blocked.
  */
 const createTransporter = () => {
   const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
+  const port = parseInt(process.env.EMAIL_PORT, 10) || (host.includes('gmail') ? 465 : 587);
   const user = process.env.EMAIL_USER;
   const pass = process.env.EMAIL_PASSWORD;
 
@@ -14,45 +15,42 @@ const createTransporter = () => {
     return null;
   }
 
-  // If Gmail, use nodemailer's dedicated Gmail preset and clean any spaces in the app password
   const cleanPass = pass.replace(/\s+/g, '');
-  if (host.includes('gmail') || user.toLowerCase().endsWith('@gmail.com')) {
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user,
-        pass: cleanPass,
-      },
-    });
-  }
+  const isSecure = port === 465;
 
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: isSecure,
     auth: {
-      user,
+      user: user.trim(),
       pass: cleanPass,
+    },
+    connectionTimeout: 4000,
+    greetingTimeout: 4000,
+    socketTimeout: 5000,
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 };
 
 /**
  * Sends a 6-digit OTP for password reset to the user's email.
- * If SMTP credentials are not configured or email delivery fails,
- * it logs the OTP in the server console for local testing.
+ * 1. If RESEND_API_KEY is configured, sends via Resend REST API (HTTPS port 443, never blocked by Render/AWS).
+ * 2. If SMTP is configured, sends via Nodemailer with strict timeouts.
+ * 3. If SMTP ports are blocked by cloud firewalls or unconfigured, safely returns simulation fallback.
  *
  * @param {string} toEmail - Recipient email address
  * @param {string} otp - 6-digit OTP code
  * @param {string} userName - Name of the user
- * @returns {Promise<{ delivered: boolean, message: string }>}
+ * @returns {Promise<{ delivered: boolean, message: string, reason?: string, error?: string }>}
  */
 export const sendPasswordResetEmail = async (toEmail, otp, userName = 'Valued User') => {
   const emailUser = process.env.EMAIL_USER;
   const emailFrom = (process.env.EMAIL_FROM && !process.env.EMAIL_FROM.includes('no-reply@myexpmanager.com'))
     ? process.env.EMAIL_FROM
     : `"MyExpManager Security" <${emailUser || 'no-reply@myexpmanager.com'}>`;
-  const transporter = createTransporter();
 
   const textContent = `Hello ${userName},\n\n` +
     `You requested a password reset for your MyExpManager account.\n` +
@@ -99,23 +97,61 @@ export const sendPasswordResetEmail = async (toEmail, otp, userName = 'Valued Us
     </html>
   `;
 
-  // Always log clearly to console for development / testing visibility
+  // Always log clearly to console for visibility
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`📬 [EMAIL SERVICE] Password Reset OTP for: ${toEmail}`);
   console.log(`🔑 Verification Code: [ ${otp} ] (Valid for 10 minutes)`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
+  // 1. Try Resend Official SDK if configured (Bypasses Render/cloud SMTP port blocks via HTTPS port 443)
+  const resendApiKey = process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.trim() : null;
+  if (resendApiKey) {
+    try {
+      console.log('🚀 [EMAIL SERVICE] Attempting email dispatch via Resend HTTPS API...');
+      const resend = new Resend(resendApiKey);
+      const resendSender = process.env.RESEND_FROM || 'MyExpManager <onboarding@resend.dev>';
+
+      const { data, error } = await resend.emails.send({
+        from: resendSender,
+        to: [toEmail],
+        subject: `Your MyExpManager Password Reset Code: ${otp}`,
+        text: textContent,
+        html: htmlContent,
+      });
+
+      if (!error && data?.id) {
+        console.log(`✅ [EMAIL SERVICE] Successfully delivered via Resend API: ${data.id}`);
+        return {
+          delivered: true,
+          messageId: data.id,
+          message: 'Email successfully dispatched via Resend.',
+        };
+      } else if (error) {
+        console.warn('⚠️ [EMAIL SERVICE] Resend API returned error:', error.message || error);
+      }
+    } catch (resendErr) {
+      console.error('⚠️ [EMAIL SERVICE] Resend HTTP call failed:', resendErr.message);
+    }
+  }
+
+  // 2. Try SMTP Transporter (Nodemailer) with strict timeout guard
+  const transporter = createTransporter();
   if (!transporter) {
-    console.log('ℹ️ [EMAIL SERVICE] SMTP credentials not set (EMAIL_USER / EMAIL_PASSWORD). Falling back to console-delivered OTP for local testing.');
+    console.log('ℹ️ [EMAIL SERVICE] SMTP credentials not set (EMAIL_USER / EMAIL_PASSWORD). Falling back to simulated OTP.');
     return {
       delivered: false,
       isSimulated: true,
-      message: 'OTP generated and logged to development console.',
+      message: 'OTP generated and logged to server console (SMTP unconfigured).',
     };
   }
 
   try {
-    const info = await transporter.sendMail({
+    // 5-second timeout guard against cloud firewall silent drops on ports 25/465/587
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('SMTP connection timed out after 5000ms. Outbound SMTP ports (25, 465, 587) are blocked by cloud firewall (e.g., Render Web Services).')), 5000)
+    );
+
+    const sendPromise = transporter.sendMail({
       from: emailFrom,
       to: toEmail,
       subject: `Your MyExpManager Password Reset Code: ${otp}`,
@@ -123,7 +159,8 @@ export const sendPasswordResetEmail = async (toEmail, otp, userName = 'Valued Us
       html: htmlContent,
     });
 
-    console.log(`✅ [EMAIL SERVICE] Email successfully dispatched: ${info.messageId}`);
+    const info = await Promise.race([sendPromise, timeoutPromise]);
+    console.log(`✅ [EMAIL SERVICE] Email successfully dispatched via SMTP: ${info.messageId}`);
     return {
       delivered: true,
       messageId: info.messageId,
@@ -131,11 +168,13 @@ export const sendPasswordResetEmail = async (toEmail, otp, userName = 'Valued Us
     };
   } catch (error) {
     console.error('⚠️ [EMAIL SERVICE] Failed to deliver email via SMTP:', error.message);
-    // Even if SMTP fails, return gracefully with simulated fallback so user/tester can proceed
+    console.info('💡 TIP: Render blocks outbound SMTP ports (25, 465, 587). Add RESEND_API_KEY in Render Dashboard -> Environment for instant live email delivery over HTTPS.');
+
     return {
       delivered: false,
       isSimulated: true,
       error: error.message,
+      reason: 'Cloud firewall blocked SMTP ports (25, 465, 587)',
       message: 'SMTP delivery failed; OTP was logged to server console.',
     };
   }

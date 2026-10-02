@@ -470,7 +470,9 @@ export const forgotPassword = async (req, res) => {
       delivered: emailRes.delivered,
       message: emailRes.delivered
         ? 'A 6-digit verification code has been sent to your email.'
-        : `Verification code generated. (SMTP is not configured in backend/.env; use test OTP: ${otp})`,
+        : (emailRes.reason
+            ? `Cloud firewall blocked SMTP. Temporary code: ${otp}`
+            : `Email service unconfigured. Temporary code: ${otp}`),
       cooldownSeconds: 60,
       ...(!emailRes.delivered ? { devOtp: otp } : {}),
     });
